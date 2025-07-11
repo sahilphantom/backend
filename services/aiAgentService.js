@@ -2,11 +2,18 @@ const axios = require('axios');
 const chromaService = require('./chromaService');
 require('dotenv').config();
 
+// Debug logging for environment
+console.log('Environment check:');
+console.log('NODE_ENV:', process.env.NODE_ENV);
+console.log('Has RAPIDAPI_KEY:', !!process.env.RAPIDAPI_KEY);
+
 const generateResponse = async (messages) => {
-  const apiKey = process.env.RAPIDAPI_KEY;
-  if (!apiKey) {
-    throw new Error('RAPIDAPI_KEY environment variable is not set');
-  }
+  // Temporarily hardcode the API key
+  const apiKey = 'df318559e4msha0132b05f51e5f1p17a0e5jsn21ec099089a2';
+  
+  // Debug log the key being used (mask most of it)
+  const maskedKey = apiKey.substring(0, 8) + '...' + apiKey.substring(apiKey.length - 4);
+  console.log('Using API key:', maskedKey);
 
   const options = {
     method: 'POST',
