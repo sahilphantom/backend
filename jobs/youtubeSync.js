@@ -3,9 +3,13 @@ const fs = require('fs').promises;
 const path = require('path');
 require('dotenv').config();
 
-// Alex Hormozi's channel ID (verified from his channel URL)
-const YOUTUBE_CHANNEL_ID = 'UCaI5Tvq9azCzGEphxSw0BQw';
+// Get channel ID from environment variable
+const YOUTUBE_CHANNEL_ID = process.env.YOUTUBE_CHANNEL_ID;
 const OUTPUT_DIR = path.join(__dirname, '../data/hormozi/youtube');
+
+// Get date 3 months ago
+const threeMonthsAgo = new Date();
+threeMonthsAgo.setMonth(threeMonthsAgo.getMonth() - 3);
 
 async function fetchVideoList(pageToken = '') {
   try {
@@ -13,7 +17,14 @@ async function fetchVideoList(pageToken = '') {
       throw new Error('YOUTUBE_API_KEY is not set in .env file');
     }
 
+    if (!YOUTUBE_CHANNEL_ID) {
+      throw new Error('YOUTUBE_CHANNEL_ID is not set in .env file');
+    }
+
     console.log(`Fetching video list${pageToken ? ' (next page)' : ''}...`);
+    console.log(`Channel ID: ${YOUTUBE_CHANNEL_ID}`);
+    console.log(`Getting videos published after: ${threeMonthsAgo.toISOString()}`);
+    
     const response = await axios.get(`https://www.googleapis.com/youtube/v3/search`, {
       params: {
         key: process.env.YOUTUBE_API_KEY,
@@ -22,12 +33,13 @@ async function fetchVideoList(pageToken = '') {
         order: 'date',
         maxResults: 50,
         type: 'video',
-        pageToken
+        pageToken,
+        publishedAfter: threeMonthsAgo.toISOString()
       }
     });
 
     if (!response.data.items || response.data.items.length === 0) {
-      console.log('No videos found. Make sure the channel ID is correct.');
+      console.log('No videos found in the last 3 months.');
       return response.data;
     }
 
@@ -64,6 +76,32 @@ async function fetchVideoDetails(videoId) {
 async function fetchTranscript(videoId, title) {
   try {
     console.log(`Fetching transcript for "${title}" (${videoId})...`);
+    
+    // First try to get video captions using YouTube API
+    try {
+      const captionsResponse = await axios.get(`https://www.googleapis.com/youtube/v3/captions`, {
+        params: {
+          key: process.env.YOUTUBE_API_KEY,
+          videoId: videoId,
+          part: 'snippet'
+        }
+      });
+
+      if (captionsResponse.data.items && captionsResponse.data.items.length > 0) {
+        const captionId = captionsResponse.data.items[0].id;
+        const transcriptResponse = await axios.get(`https://www.googleapis.com/youtube/v3/captions/${captionId}`, {
+          params: {
+            key: process.env.YOUTUBE_API_KEY,
+            tfmt: 'srt'
+          }
+        });
+        return transcriptResponse.data;
+      }
+    } catch (error) {
+      console.log('Could not fetch captions from YouTube API, using RapidAPI fallback...');
+    }
+
+    // Fallback to RapidAPI
     const options = {
       method: 'POST',
       url: 'https://chatgpt-42.p.rapidapi.com/conversationllama3',
@@ -75,8 +113,12 @@ async function fetchTranscript(videoId, title) {
       data: {
         messages: [
           {
+            role: 'system',
+            content: 'You are a transcript generator. Watch the video and provide a detailed transcript of what is being said.'
+          },
+          {
             role: 'user',
-            content: `Please transcribe this YouTube video: https://www.youtube.com/watch?v=${videoId}`
+            content: `Please provide a detailed transcript of this YouTube video: https://www.youtube.com/watch?v=${videoId}`
           }
         ],
         web_access: true
@@ -95,6 +137,11 @@ async function fetchTranscript(videoId, title) {
 async function generateSummary(transcript, title) {
   try {
     console.log(`Generating summary for "${title}"...`);
+    if (!transcript || typeof transcript !== 'string' || transcript === 'Transcript unavailable') {
+      console.log('No transcript available for summary generation');
+      return 'Summary unavailable - no transcript';
+    }
+
     const options = {
       method: 'POST',
       url: 'https://chatgpt-42.p.rapidapi.com/conversationllama3',
@@ -106,8 +153,12 @@ async function generateSummary(transcript, title) {
       data: {
         messages: [
           {
+            role: 'system',
+            content: 'You are a content summarizer. Provide concise, informative summaries that capture the main points and key takeaways.'
+          },
+          {
             role: 'user',
-            content: `Please provide a concise summary of this transcript: ${transcript.substring(0, 3000)}...`
+            content: `Please provide a concise summary of this transcript, focusing on the main points and key takeaways: ${transcript.slice(0, 3000)}...`
           }
         ],
         web_access: false
@@ -119,7 +170,7 @@ async function generateSummary(transcript, title) {
     return response.data.answer;
   } catch (error) {
     console.error('Error generating summary:', error.message);
-    return 'Summary unavailable';
+    return 'Summary unavailable - error during generation';
   }
 }
 
