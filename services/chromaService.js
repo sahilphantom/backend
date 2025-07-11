@@ -1,5 +1,7 @@
 const { ChromaClient } = require('chromadb');
 const axios = require('axios');
+const fs = require('fs').promises;
+const path = require('path');
 require('dotenv').config();
 
 // Initialize ChromaDB client
@@ -203,9 +205,79 @@ async function searchContent(query) {
   }
 }
 
+// Load and index content from data folder
+async function loadDataFolder() {
+  try {
+    console.log('Loading content from data folder...');
+    
+    // Process YouTube content
+    const youtubeDir = path.join(__dirname, '../data/hormozi/youtube');
+    try {
+      const files = await fs.readdir(youtubeDir);
+      for (const file of files) {
+        if (file.endsWith('.json')) {
+          const content = JSON.parse(await fs.readFile(path.join(youtubeDir, file), 'utf8'));
+          // Format content for ChromaDB
+          const document = {
+            id: content.videoId,
+            text: `Title: ${content.title}\nDescription: ${content.description}\nTranscript: ${content.transcript}\nSummary: ${content.summary}`,
+            metadata: {
+              mentor_name: content.mentor_name,
+              platform: content.platform,
+              date: content.date,
+              url: content.url,
+              title: content.title,
+              type: 'video'
+            }
+          };
+          await addDocuments('YOUTUBE', [document]);
+          console.log(`Indexed YouTube content: ${content.title}`);
+        }
+      }
+    } catch (error) {
+      console.error('Error processing YouTube content:', error);
+    }
+    
+    // Process Podcast content
+    const podcastsDir = path.join(__dirname, '../data/hormozi/podcasts');
+    try {
+      const files = await fs.readdir(podcastsDir);
+      for (const file of files) {
+        if (file.endsWith('.json')) {
+          const content = JSON.parse(await fs.readFile(path.join(podcastsDir, file), 'utf8'));
+          // Format content for ChromaDB (assuming similar structure)
+          const document = {
+            id: path.basename(file, '.json'),
+            text: `Title: ${content.title || ''}\nDescription: ${content.description || ''}\nTranscript: ${content.transcript || ''}\nSummary: ${content.summary || ''}`,
+            metadata: {
+              mentor_name: content.mentor_name,
+              platform: content.platform || 'PODCASTS',
+              date: content.date,
+              url: content.url,
+              title: content.title,
+              type: 'podcast'
+            }
+          };
+          await addDocuments('PODCASTS', [document]);
+          console.log(`Indexed Podcast content: ${content.title || file}`);
+        }
+      }
+    } catch (error) {
+      console.error('Error processing Podcast content:', error);
+    }
+    
+    console.log('Finished loading content from data folder');
+    return true;
+  } catch (error) {
+    console.error('Error loading data folder:', error);
+    throw error;
+  }
+}
+
 module.exports = {
   initializeChromaDB,
   addDocuments,
   searchContent,
-  COLLECTIONS
+  COLLECTIONS,
+  loadDataFolder  // Added new function to exports
 }; 
