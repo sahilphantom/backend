@@ -33,7 +33,6 @@ const generateResponse = async (messages) => {
       console.error('RapidAPI error response:', error.response.data);
       console.error('RapidAPI error status:', error.response.status);
       
-      // Handle rate limit specifically
       if (error.response.status === 429) {
         throw new Error('API rate limit exceeded. Please try again later.');
       }
