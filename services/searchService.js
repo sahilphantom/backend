@@ -28,48 +28,110 @@ async function loadYouTubeContent() {
   }
 }
 
-// Simple search function that looks for keyword matches
+// Calculate relevance score based on various factors
+function calculateRelevance(content, searchTerms) {
+  let score = 0;
+  const text = {
+    title: (content.title || '').toLowerCase(),
+    description: (content.description || '').toLowerCase(),
+    transcript: (content.transcript || '').toLowerCase(),
+    summary: (content.summary || '').toLowerCase(),
+    tags: (content.tags || []).join(' ').toLowerCase()
+  };
+
+  for (const term of searchTerms) {
+    // Title matches are most important
+    if (text.title.includes(term)) {
+      score += 10;
+    }
+    // Tag matches are second most important
+    if (text.tags.includes(term)) {
+      score += 5;
+    }
+    // Description matches
+    if (text.description.includes(term)) {
+      score += 3;
+    }
+    // Transcript and summary matches
+    if (text.transcript !== 'transcript unavailable' && text.transcript.includes(term)) {
+      score += 2;
+    }
+    if (text.summary !== 'summary unavailable - no transcript' && text.summary.includes(term)) {
+      score += 2;
+    }
+  }
+
+  // Bonus for matching all terms in any field
+  if (searchTerms.every(term => 
+    text.title.includes(term) || 
+    text.description.includes(term) || 
+    text.tags.includes(term) ||
+    (text.transcript !== 'transcript unavailable' && text.transcript.includes(term)) ||
+    (text.summary !== 'summary unavailable - no transcript' && text.summary.includes(term))
+  )) {
+    score += 15;
+  }
+
+  return score;
+}
+
+// Enhanced search function with better matching and scoring
 async function searchContent(query) {
   try {
     const youtubeContent = await loadYouTubeContent();
+    const searchTerms = query.toLowerCase().split(' ').filter(term => term.length > 2);
     const results = [];
-    const searchTerms = query.toLowerCase().split(' ');
 
     for (const content of youtubeContent) {
-      // Combine all searchable content
-      const searchableText = `
-        ${content.title || ''}
-        ${content.description || ''}
-        ${content.transcript || ''}
-        ${content.summary || ''}
-      `.toLowerCase();
-
-      // Check if all search terms are present
-      const matches = searchTerms.every(term => searchableText.includes(term));
-
-      if (matches) {
+      const relevanceScore = calculateRelevance(content, searchTerms);
+      
+      // Only include results with some relevance
+      if (relevanceScore > 0) {
         results.push({
-          source: content.source,
-          title: content.title,
-          description: content.description,
-          url: content.url,
-          transcript: content.transcript,
-          summary: content.summary
+          ...content,
+          relevanceScore
         });
       }
     }
 
-    // Sort results by relevance (currently just by title length as a simple metric)
-    results.sort((a, b) => a.title.length - b.title.length);
+    // Sort by relevance score
+    results.sort((a, b) => b.relevanceScore - a.relevanceScore);
 
-    // Format results for display
-    return results.map(result => 
-      `[${result.source}] Title: ${result.title}\n` +
-      `Description: ${result.description}\n` +
-      `URL: ${result.url}\n` +
-      `${result.summary ? `Summary: ${result.summary}\n` : ''}` +
-      `${result.transcript ? `Relevant transcript excerpt: ${result.transcript.substring(0, 300)}...\n` : ''}`
-    );
+    // Take top 5 most relevant results
+    return results.slice(0, 5).map(result => {
+      let formattedResult = `[${result.source}] Title: ${result.title}\n`;
+      
+      // Add description if it contains any search terms
+      if (searchTerms.some(term => result.description.toLowerCase().includes(term))) {
+        formattedResult += `Description: ${result.description}\n`;
+      }
+
+      // Add URL
+      formattedResult += `URL: ${result.url}\n`;
+
+      // Add relevant tag matches
+      const matchingTags = result.tags.filter(tag => 
+        searchTerms.some(term => tag.toLowerCase().includes(term))
+      );
+      if (matchingTags.length > 0) {
+        formattedResult += `Relevant Tags: ${matchingTags.join(', ')}\n`;
+      }
+
+      // Add summary if available and relevant
+      if (result.summary && result.summary !== 'Summary unavailable - no transcript' &&
+          searchTerms.some(term => result.summary.toLowerCase().includes(term))) {
+        formattedResult += `Summary: ${result.summary}\n`;
+      }
+
+      // Add transcript excerpt if available and relevant
+      if (result.transcript && result.transcript !== 'Transcript unavailable' &&
+          searchTerms.some(term => result.transcript.toLowerCase().includes(term))) {
+        const excerpt = result.transcript.substring(0, 300);
+        formattedResult += `Relevant transcript excerpt: ${excerpt}...\n`;
+      }
+
+      return formattedResult;
+    });
   } catch (error) {
     console.error('Error searching content:', error);
     return [];
