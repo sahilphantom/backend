@@ -1,21 +1,73 @@
-const { ChromaClient, OpenAIEmbeddingFunction } = require('chromadb');
-const path = require('path');
+const { ChromaClient } = require('chromadb');
+const axios = require('axios');
 require('dotenv').config();
 
-// Initialize ChromaDB client with persistent storage
+// Initialize ChromaDB client
 const client = new ChromaClient({
-  path: "http://localhost:8000",
-  auth: {
-    provider: "basic",
-    credentials: process.env.CHROMA_TOKEN || ""
-  }
+  path: process.env.CHROMA_URL || "http://localhost:8000",
 });
 
-// Use OpenAI embeddings for better semantic search
-const embedder = new OpenAIEmbeddingFunction({
-  openai_api_key: process.env.OPENAI_API_KEY,
-  model_name: "text-embedding-ada-002"
-});
+// Custom embedding function using RapidAPI LLM
+const embedder = {
+  async generate(texts) {
+    try {
+      const options = {
+        method: 'POST',
+        url: 'https://chatgpt-42.p.rapidapi.com/conversationllama3',
+        headers: {
+          'x-rapidapi-key': process.env.RAPIDAPI_KEY,
+          'x-rapidapi-host': 'chatgpt-42.p.rapidapi.com',
+          'Content-Type': 'application/json'
+        },
+        data: {
+          messages: [
+            {
+              role: 'system',
+              content: 'You are a semantic search assistant. For the given text, analyze its key concepts and meaning. Then generate a numerical embedding vector with 1536 dimensions that represents this semantic meaning. Return ONLY a JSON array of 1536 numbers between -1 and 1.'
+            },
+            {
+              role: 'user',
+              content: Array.isArray(texts) ? texts[0] : texts // Process one text at a time
+            }
+          ],
+          web_access: false
+        }
+      };
+
+      const response = await axios.request(options);
+      let vector;
+      try {
+        // Extract the JSON array from the response
+        const match = response.data.answer.match(/\[.*\]/);
+        vector = match ? JSON.parse(match[0]) : new Array(1536).fill(0);
+      } catch (error) {
+        console.error('Error parsing vector:', error);
+        vector = new Array(1536).fill(0);
+      }
+
+      // If multiple texts, process each one
+      if (Array.isArray(texts)) {
+        const results = [vector];
+        for (let i = 1; i < texts.length; i++) {
+          options.data.messages[1].content = texts[i];
+          const resp = await axios.request(options);
+          try {
+            const match = resp.data.answer.match(/\[.*\]/);
+            results.push(match ? JSON.parse(match[0]) : new Array(1536).fill(0));
+          } catch (error) {
+            results.push(new Array(1536).fill(0));
+          }
+        }
+        return results;
+      }
+
+      return [vector];
+    } catch (error) {
+      console.error('Error generating embeddings:', error);
+      return Array.isArray(texts) ? texts.map(() => new Array(1536).fill(0)) : [new Array(1536).fill(0)];
+    }
+  }
+};
 
 // Collection names for each platform
 const COLLECTIONS = {
@@ -30,29 +82,27 @@ const COLLECTIONS = {
 // Initialize ChromaDB and create collections
 async function initializeChromaDB() {
   try {
-    console.log('Initializing ChromaDB with persistent storage...');
+    console.log('Initializing ChromaDB...');
     
     // Create collections if they don't exist
     for (const [platform, collectionName] of Object.entries(COLLECTIONS)) {
       try {
-        // Try to get existing collection
         await client.getCollection({
           name: collectionName,
           embeddingFunction: embedder
         });
-        console.log(`Collection ${collectionName} already exists`);
+        console.log(`Collection ${collectionName} exists`);
       } catch (error) {
-        // Create new collection if it doesn't exist
         await client.createCollection({
           name: collectionName,
           embeddingFunction: embedder,
           metadata: { platform: platform.toLowerCase() }
         });
-        console.log(`Created new collection: ${collectionName}`);
+        console.log(`Created collection: ${collectionName}`);
       }
     }
     
-    console.log('ChromaDB initialization complete!');
+    console.log('ChromaDB initialization complete');
     return true;
   } catch (error) {
     console.error('Error initializing ChromaDB:', error);
@@ -60,26 +110,21 @@ async function initializeChromaDB() {
   }
 }
 
-// Get collection by platform
-async function getCollection(platform) {
-  const collectionName = COLLECTIONS[platform.toUpperCase()];
-  if (!collectionName) {
-    throw new Error(`Unknown platform: ${platform}`);
-  }
-  
-  return await client.getCollection({
-    name: collectionName,
-    embeddingFunction: embedder
-  });
-}
-
 // Add documents to a collection
 async function addDocuments(platform, documents) {
   try {
-    const collection = await getCollection(platform);
+    const collectionName = COLLECTIONS[platform.toUpperCase()];
+    if (!collectionName) {
+      throw new Error(`Unknown platform: ${platform}`);
+    }
+    
+    const collection = await client.getCollection({
+      name: collectionName,
+      embeddingFunction: embedder
+    });
     
     // Prepare documents for ChromaDB
-    const ids = documents.map((doc, index) => `${platform}_${doc.id || Date.now()}_${index}`);
+    const ids = documents.map(doc => `${platform}_${doc.id || Date.now()}`);
     const texts = documents.map(doc => doc.text || doc.content || '');
     const metadatas = documents.map(doc => ({
       mentor_name: 'Alex Hormozi',
@@ -91,8 +136,8 @@ async function addDocuments(platform, documents) {
       ...doc.metadata
     }));
     
-    // Add documents in batches of 100
-    const batchSize = 100;
+    // Add documents in batches of 10 (since we're using API for embeddings)
+    const batchSize = 10;
     for (let i = 0; i < texts.length; i += batchSize) {
       const batchIds = ids.slice(i, i + batchSize);
       const batchTexts = texts.slice(i, i + batchSize);
@@ -104,10 +149,9 @@ async function addDocuments(platform, documents) {
         metadatas: batchMetadatas
       });
       
-      console.log(`Added batch ${i/batchSize + 1} to ${platform} collection`);
+      console.log(`Added batch ${i/batchSize + 1} to ${platform}`);
     }
     
-    console.log(`Successfully added ${documents.length} documents to ${platform} collection`);
     return true;
   } catch (error) {
     console.error(`Error adding documents to ${platform}:`, error);
@@ -115,78 +159,53 @@ async function addDocuments(platform, documents) {
   }
 }
 
-// Search for similar content
-async function searchSimilar(platform, query, n_results = 5) {
-  try {
-    const collection = await getCollection(platform);
-    
-    const results = await collection.query({
-      queryTexts: [query],
-      nResults: n_results,
-      include: ["metadatas", "distances", "documents"]
-    });
-    
-    return results;
-  } catch (error) {
-    console.error(`Error searching ${platform}:`, error);
-    throw error;
-  }
-}
-
-// Search across all platforms
-async function searchAllPlatforms(query, n_results = 3) {
-  const allResults = {};
-  
-  for (const platform of Object.keys(COLLECTIONS)) {
-    try {
-      const results = await searchSimilar(platform.toLowerCase(), query, n_results);
-      allResults[platform.toLowerCase()] = results;
-    } catch (error) {
-      console.error(`Error searching ${platform}:`, error);
-      allResults[platform.toLowerCase()] = null;
-    }
-  }
-  
-  return allResults;
-}
-
-// Search content specifically for the AI agent
+// Search content
 async function searchContent(query) {
   try {
-    const results = await searchAllPlatforms(query, 5);
+    const results = [];
     
-    // Flatten and format results from all platforms
-    const formattedResults = [];
-    
-    for (const [platform, platformResults] of Object.entries(results)) {
-      if (platformResults && platformResults.documents && platformResults.documents[0]) {
-        platformResults.documents[0].forEach((doc, index) => {
-          const metadata = platformResults.metadatas[0][index];
-          const distance = platformResults.distances[0][index];
-          
-          // Only include results with good semantic similarity
-          if (distance < 0.8) {
-            formattedResults.push(
-              `[${platform.toUpperCase()}] ${metadata.title ? `Title: ${metadata.title}\n` : ''}${doc.substring(0, 500)}...`
-            );
-          }
+    // Search each collection
+    for (const platform of Object.keys(COLLECTIONS)) {
+      try {
+        const collection = await client.getCollection({
+          name: COLLECTIONS[platform],
+          embeddingFunction: embedder
         });
+        
+        const response = await collection.query({
+          queryTexts: [query],
+          nResults: 3,
+          include: ["metadatas", "distances", "documents"]
+        });
+        
+        if (response.documents[0]) {
+          response.documents[0].forEach((doc, index) => {
+            const metadata = response.metadatas[0][index];
+            const distance = response.distances[0][index];
+            
+            // Only include results with good semantic similarity
+            if (distance < 0.8) {
+              results.push(
+                `[${platform}] ${metadata.title ? `Title: ${metadata.title}\n` : ''}${doc.substring(0, 500)}...`
+              );
+            }
+          });
+        }
+      } catch (error) {
+        console.error(`Error searching ${platform}:`, error);
       }
     }
     
-    return formattedResults;
+    return results;
   } catch (error) {
     console.error('Error searching content:', error);
-    return []; // Return empty array if search fails
+    return [];
   }
 }
 
 module.exports = {
   initializeChromaDB,
-  getCollection,
   addDocuments,
-  searchSimilar,
-  searchAllPlatforms,
   searchContent,
   COLLECTIONS
 }; 
