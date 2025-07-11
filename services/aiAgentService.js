@@ -3,11 +3,16 @@ const chromaService = require('./chromaService');
 require('dotenv').config();
 
 const generateResponse = async (messages) => {
+  const apiKey = process.env.RAPIDAPI_KEY;
+  if (!apiKey) {
+    throw new Error('RAPIDAPI_KEY environment variable is not set');
+  }
+
   const options = {
     method: 'POST',
     url: 'https://chatgpt-42.p.rapidapi.com/conversationllama3',
     headers: {
-      'x-rapidapi-key': process.env.RAPIDAPI_KEY || 'c172139ddfmsh9c256ac7b70267fp1ea003jsn0554e559c5ee',
+      'x-rapidapi-key': apiKey,
       'x-rapidapi-host': 'chatgpt-42.p.rapidapi.com',
       'Content-Type': 'application/json'
     },
@@ -27,6 +32,11 @@ const generateResponse = async (messages) => {
     if (error.response) {
       console.error('RapidAPI error response:', error.response.data);
       console.error('RapidAPI error status:', error.response.status);
+      
+      // Handle rate limit specifically
+      if (error.response.status === 429) {
+        throw new Error('API rate limit exceeded. Please try again later.');
+      }
     }
     throw error;
   }
@@ -78,15 +88,43 @@ const handleConversation = async (req, res) => {
     const { query, context } = req.body;
     
     if (!query) {
-      return res.status(400).json({ error: 'Query is required' });
+      return res.status(400).json({ 
+        error: 'Invalid request',
+        details: 'Query is required'
+      });
     }
 
     const response = await handleUserQuery(query, context);
     res.json(response);
   } catch (error) {
     console.error('Error in conversation handler:', error);
+    
+    // Handle specific error types
+    if (error.message.includes('RAPIDAPI_KEY')) {
+      return res.status(500).json({
+        error: 'Server configuration error',
+        details: 'API key not configured'
+      });
+    }
+    
+    if (error.message.includes('rate limit exceeded')) {
+      return res.status(429).json({
+        error: 'Rate limit exceeded',
+        details: 'Please try again in a few minutes'
+      });
+    }
+
+    // Handle ChromaDB connection errors
+    if (error.message.includes('Failed to connect to chromadb')) {
+      return res.status(500).json({
+        error: 'Database connection error',
+        details: 'Unable to connect to content database'
+      });
+    }
+
+    // Generic error handler
     res.status(500).json({ 
-      error: 'Error processing message',
+      error: 'Internal server error',
       details: error.message 
     });
   }
