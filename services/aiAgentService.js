@@ -1,5 +1,5 @@
 const axios = require('axios');
-const chromaService = require('./chromaService');
+const searchService = require('./searchService');
 require('dotenv').config();
 
 // Debug logging for environment
@@ -50,9 +50,9 @@ const generateResponse = async (messages) => {
 
 const handleUserQuery = async (query, context) => {
   try {
-    // First, search ChromaDB for relevant context
-    const relevantContent = await chromaService.searchContent(query);
-    console.log('ChromaDB relevant content:', relevantContent);
+    // Search for relevant content using the new search service
+    const relevantContent = await searchService.searchContent(query);
+    console.log('Search results:', relevantContent);
 
     // If no relevant content found, return an appropriate message
     if (!relevantContent || relevantContent.length === 0) {
@@ -91,55 +91,36 @@ ${relevantContent.join('\n')}`;
   }
 };
 
-const handleConversation = async (req, res) => {
-  try {
-    const { query, context } = req.body;
-    
-    if (!query) {
-      return res.status(400).json({ 
-        error: 'Invalid request',
-        details: 'Query is required'
-      });
-    }
-
-    const response = await handleUserQuery(query, context);
-    res.json(response);
-  } catch (error) {
-    console.error('Error in conversation handler:', error);
-    
-    // Handle specific error types
-    if (error.message.includes('RAPIDAPI_KEY')) {
-      return res.status(500).json({
-        error: 'Server configuration error',
-        details: 'API key not configured'
-      });
-    }
-    
-    if (error.message.includes('rate limit exceeded')) {
-      return res.status(429).json({
-        error: 'Rate limit exceeded',
-        details: 'Please try again in a few minutes'
-      });
-    }
-
-    // Handle ChromaDB connection errors
-    if (error.message.includes('Failed to connect to chromadb')) {
-      return res.status(500).json({
-        error: 'Database connection error',
-        details: 'Unable to connect to content database'
-      });
-    }
-
-    // Generic error handler
-    res.status(500).json({ 
-      error: 'Internal server error',
-      details: error.message 
-    });
-  }
-};
-
 module.exports = {
-  handleConversation,
+  handleConversation: async (req, res) => {
+    try {
+      const { query, context } = req.body;
+      
+      if (!query) {
+        return res.status(400).json({ 
+          error: 'Invalid request',
+          details: 'Query is required'
+        });
+      }
+
+      const response = await handleUserQuery(query, context);
+      res.json(response);
+    } catch (error) {
+      console.error('Error in conversation handler:', error);
+      
+      if (error.message.includes('rate limit exceeded')) {
+        return res.status(429).json({
+          error: 'Rate limit exceeded',
+          details: 'Please try again in a few minutes'
+        });
+      }
+
+      res.status(500).json({ 
+        error: 'Internal server error',
+        details: error.message 
+      });
+    }
+  },
   handleUserQuery,
   generateResponse
 }; 

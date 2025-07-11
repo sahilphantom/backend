@@ -10,8 +10,7 @@ pnpm-debug.log*
 
 # dotenv environment variables
 .env
-.env.*
-*.env
+
 
 # Build output (if you use TypeScript or build tools)
 dist/

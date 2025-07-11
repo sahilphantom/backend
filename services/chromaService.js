@@ -4,10 +4,26 @@ const fs = require('fs').promises;
 const path = require('path');
 require('dotenv').config();
 
-// Initialize ChromaDB client
+// Initialize ChromaDB client with configuration
 const client = new ChromaClient({
-  path: process.env.CHROMA_URL || "http://localhost:10000",
+  host: process.env.CHROMA_HOST || 'localhost',
+  port: process.env.CHROMA_PORT || 10000,
+  protocol: process.env.CHROMA_PROTOCOL || 'http',
+  headers: {
+    'Access-Control-Allow-Origin': '*'
+  }
 });
+
+// Add health check function
+async function isChromaHealthy() {
+  try {
+    await client.heartbeat();
+    return true;
+  } catch (error) {
+    console.error('ChromaDB health check failed:', error.message);
+    return false;
+  }
+}
 
 // Custom embedding function using RapidAPI LLM
 const embedder = {
