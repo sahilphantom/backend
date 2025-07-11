@@ -1,0 +1,48 @@
+# Node modules
+node_modules/
+
+# Logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+*.log
+
+# dotenv environment variables
+.env
+.env.*
+*.env
+
+# Build output (if you use TypeScript or build tools)
+dist/
+build/
+
+# Runtime data / cache
+*.pid
+*.seed
+*.pid.lock
+.cache/
+.next/
+out/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDEs / editors
+.vscode/
+.idea/
+*.sublime-workspace
+*.sublime-project
+
+# Coverage reports
+coverage/
+*.lcov
+
+# Optional: local database / storage (like Chroma local folder or sqlite)
+chroma/
+*.db
+*.sqlite
+
+# Optional: uploads if they are dynamically generated (only ignore if you don't store them)
+uploads/
