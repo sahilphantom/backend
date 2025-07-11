@@ -6,7 +6,7 @@ require('dotenv').config();
 
 // Initialize ChromaDB client
 const client = new ChromaClient({
-  path: process.env.CHROMA_URL || "http://localhost:8000",
+  path: process.env.CHROMA_URL || "http://localhost:10000",
 });
 
 // Custom embedding function using RapidAPI LLM
