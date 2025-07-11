@@ -6,7 +6,15 @@ const { scheduleDailySync } = require('./jobs/contentSync');
 const app = express();
 const PORT = process.env.PORT || 5001;
 
-app.use(cors());
+// Configure CORS
+const corsOptions = {
+  origin: ['https://mozi-ai.netlify.app', 'http://localhost:3000'],
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization'],
+  credentials: true
+};
+
+app.use(cors(corsOptions));
 app.use(express.json());
 
 const youtubeRoutes = require('./routes/youtubeRoutes');
