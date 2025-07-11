@@ -2,6 +2,7 @@ require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
 const { scheduleDailySync } = require('./jobs/contentSync');
+const { checkAndLoadData } = require('./services/chromaService');
 
 const app = express();
 const PORT = process.env.PORT || 5001;
@@ -46,9 +47,24 @@ app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', message: 'Mozi AI backend is running.' });
 });
 
-// Initialize daily content sync
-scheduleDailySync();
+// Initialize ChromaDB and load data
+async function initializeServer() {
+  try {
+    // Initialize ChromaDB and load data
+    await checkAndLoadData();
+    
+    // Initialize daily content sync
+    scheduleDailySync();
 
-app.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
-}); 
+    // Start server
+    app.listen(PORT, () => {
+      console.log(`Server running on port ${PORT}`);
+    });
+  } catch (error) {
+    console.error('Failed to initialize server:', error);
+    process.exit(1);
+  }
+}
+
+// Start server with initialization
+initializeServer(); 

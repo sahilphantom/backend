@@ -161,9 +161,59 @@ async function addDocuments(platform, documents) {
   }
 }
 
-// Search content
+// Check if collections have data
+async function checkAndLoadData() {
+  try {
+    let needsLoading = false;
+    
+    // Check each collection
+    for (const [platform, collectionName] of Object.entries(COLLECTIONS)) {
+      try {
+        const collection = await client.getCollection({
+          name: collectionName,
+          embeddingFunction: embedder
+        });
+        
+        // Query to check if collection has any documents
+        const response = await collection.query({
+          queryTexts: [""],
+          nResults: 1
+        });
+        
+        if (!response.documents[0] || response.documents[0].length === 0) {
+          console.log(`Collection ${collectionName} is empty`);
+          needsLoading = true;
+          break;
+        }
+      } catch (error) {
+        console.log(`Collection ${collectionName} not found or error:`, error.message);
+        needsLoading = true;
+        break;
+      }
+    }
+    
+    if (needsLoading) {
+      console.log('Collections need data, initializing and loading...');
+      await initializeChromaDB();
+      await loadDataFolder();
+      console.log('Data loading complete');
+    } else {
+      console.log('Collections already have data');
+    }
+    
+    return true;
+  } catch (error) {
+    console.error('Error in checkAndLoadData:', error);
+    throw error;
+  }
+}
+
+// Search content with auto-loading
 async function searchContent(query) {
   try {
+    // Ensure data is loaded
+    await checkAndLoadData();
+    
     const results = [];
     
     // Search each collection
@@ -279,5 +329,6 @@ module.exports = {
   addDocuments,
   searchContent,
   COLLECTIONS,
-  loadDataFolder  // Added new function to exports
+  loadDataFolder,
+  checkAndLoadData  // Added new function to exports
 }; 
